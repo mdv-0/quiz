@@ -38,12 +38,18 @@ const AnswerList = ({ answers, users, onMarkAnswer }) => {
                     Ответ отправлен на факте {answer.round4FactStageAtSubmit}
                   </p>
                 )}
+                {answer.round5BetPlaced && (
+                  <p className="mt-1 text-xs text-amber-300">Ставка активна (+2 / -2)</p>
+                )}
+                {answer.round5NoAnswer && (
+                  <p className="mt-1 text-xs text-rose-300">Авто-ответ без текста: примените штраф при Incorrect</p>
+                )}
 
                 {answer.isCorrect !== null && (
-                  <span className={`badge mt-3 ${answer.isCorrect ? 'bg-[#2c7f72] text-white' : 'bg-[#a13d66] text-white'}`}>
+                  <span className={`badge mt-3 ${Number(answer.awardedPoints || 0) >= 0 ? 'bg-[#2c7f72] text-white' : 'bg-[#a13d66] text-white'}`}>
                     {answer.isCorrect
                       ? `Correct (+${Number(answer.awardedPoints || 0)} pts)`
-                      : 'Incorrect'}
+                      : `Incorrect (${Number(answer.awardedPoints || 0)} pts)`}
                   </span>
                 )}
               </div>

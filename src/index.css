@@ -194,6 +194,43 @@ h4 {
   background: linear-gradient(90deg, #ff8aa8, #d44f83);
 }
 
+.confetti-layer {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: -12%;
+  width: 10px;
+  height: 18px;
+  border-radius: 2px;
+  opacity: 0.8;
+  background: linear-gradient(180deg, #ff8de3 0%, #7b6cff 100%);
+  animation-name: confetti-fall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.confetti-piece:nth-child(3n) {
+  background: linear-gradient(180deg, #ffd783 0%, #ff8c66 100%);
+}
+
+.confetti-piece:nth-child(4n) {
+  background: linear-gradient(180deg, #98f2d1 0%, #49b9a8 100%);
+}
+
+@keyframes confetti-fall {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  100% {
+    transform: translate3d(40px, 120vh, 0) rotate(360deg);
+  }
+}
+
 @media (max-width: 768px) {
   .page-shell,
   .control-shell {

@@ -8,6 +8,8 @@ export const useGameState = () => {
     status: 'waiting',
     questionStartedAt: null,
     round4FactStage: 1,
+    mediaPlaybackState: 'idle',
+    mediaEndedAt: null,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -26,6 +28,8 @@ export const useGameState = () => {
             status: 'waiting',
             questionStartedAt: null,
             round4FactStage: 1,
+            mediaPlaybackState: 'idle',
+            mediaEndedAt: null,
           });
         }
         setLoading(false);
@@ -50,11 +54,30 @@ export const useGameState = () => {
   };
 
   const startQuestion = async (questionIndex, options = {}) => {
+    const shouldWaitForMedia = Boolean(options.waitForMedia);
     await updateGameState({
       currentQuestionIndex: questionIndex,
       status: 'question_active',
-      questionStartedAt: Date.now(),
+      questionStartedAt: shouldWaitForMedia ? null : Date.now(),
       round4FactStage: options.round4FactStage ?? 1,
+      mediaPlaybackState: shouldWaitForMedia ? 'pending' : 'completed',
+      mediaEndedAt: null,
+    });
+  };
+
+  const startMediaPlayback = async () => {
+    await updateGameState({
+      mediaPlaybackState: 'playing',
+      questionStartedAt: null,
+      mediaEndedAt: null,
+    });
+  };
+
+  const completeMediaPlaybackAndStartTimer = async () => {
+    await updateGameState({
+      mediaPlaybackState: 'completed',
+      questionStartedAt: Date.now(),
+      mediaEndedAt: Date.now(),
     });
   };
 
@@ -63,6 +86,8 @@ export const useGameState = () => {
       status: 'showing_results',
       questionStartedAt: null,
       round4FactStage: 1,
+      mediaPlaybackState: 'idle',
+      mediaEndedAt: null,
     });
   };
 
@@ -71,6 +96,8 @@ export const useGameState = () => {
       status: 'waiting',
       questionStartedAt: null,
       round4FactStage: 1,
+      mediaPlaybackState: 'idle',
+      mediaEndedAt: null,
     });
   };
 
@@ -80,6 +107,8 @@ export const useGameState = () => {
       status: 'waiting',
       questionStartedAt: null,
       round4FactStage: 1,
+      mediaPlaybackState: 'idle',
+      mediaEndedAt: null,
     });
   };
 
@@ -89,6 +118,8 @@ export const useGameState = () => {
     error,
     updateGameState,
     startQuestion,
+    startMediaPlayback,
+    completeMediaPlaybackAndStartTimer,
     showResults,
     resetToWaiting,
     restartFromFirstQuestion,

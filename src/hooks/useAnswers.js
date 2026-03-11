@@ -55,6 +55,8 @@ export const useAnswers = (questionId = null) => {
         questionId,
         answerText,
         round4FactStageAtSubmit: metadata.round4FactStageAtSubmit ?? null,
+        round5BetPlaced: Boolean(metadata.round5BetPlaced),
+        round5NoAnswer: Boolean(metadata.round5NoAnswer),
         isCorrect: null,
         awardedPoints: 0,
         timestamp: new Date()
@@ -69,7 +71,7 @@ export const useAnswers = (questionId = null) => {
   const markAnswer = async (answerId, isCorrect, points = 1) => {
     try {
       const answerRef = doc(db, 'answers', answerId);
-      await updateDoc(answerRef, { isCorrect, awardedPoints: isCorrect ? points : 0 });
+      await updateDoc(answerRef, { isCorrect, awardedPoints: Number(points || 0) });
     } catch (err) {
       setError(err.message);
       throw err;

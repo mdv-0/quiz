@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react';
+
 const Placeholder = ({ label }) => (
   <div className="w-full h-56 sm:h-72 rounded-xl border border-[#654a9e] bg-[#1a1230] flex items-center justify-center">
     <p className="text-muted font-medium">{label}</p>
@@ -36,8 +38,71 @@ const getDisplayText = (question, text, factStage) => {
   return facts.slice(0, stage).map((fact, idx) => `Факт ${idx + 1}: ${fact}`).join('\n\n');
 };
 
-const MediaDisplay = ({ mediaType, mediaUrl, text, question, factStage = 1 }) => {
+const MediaDisplay = ({
+  mediaType,
+  mediaUrl,
+  text,
+  question,
+  factStage = 1,
+  mediaMode = 'default',
+  mediaPlaybackState = 'completed',
+  canControlMedia = false,
+  onStartMedia = null,
+  onMediaCompleted = null,
+}) => {
   const displayText = getDisplayText(question, text, factStage);
+  const mediaRef = useRef(null);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const isManagedMode = mediaMode === 'quiz';
+  const isTimedMedia = mediaType === 'video' || mediaType === 'audio';
+  const shouldManageFlow = isManagedMode && isTimedMedia;
+  const isPending = shouldManageFlow && mediaPlaybackState === 'pending';
+  const isPlaying = shouldManageFlow && mediaPlaybackState === 'playing';
+  const isCompleted = shouldManageFlow && mediaPlaybackState === 'completed';
+  const mediaKey = `${question?.docId || question?.id || 'question'}:${mediaType}:${mediaUrl || ''}`;
+
+  useEffect(() => {
+    const mediaElement = mediaRef.current;
+    if (!mediaElement || !shouldManageFlow || !isPlaying) {
+      return;
+    }
+
+    mediaElement.currentTime = 0;
+    const playPromise = mediaElement.play();
+    if (playPromise?.catch) {
+      playPromise.catch(() => {
+        setAutoplayBlocked(true);
+      });
+    }
+  }, [shouldManageFlow, isPlaying, mediaKey]);
+
+  useEffect(() => {
+    setAutoplayBlocked(false);
+  }, [mediaKey]);
+
+  const handlePause = () => {
+    if (!shouldManageFlow || !isPlaying || !mediaRef.current) {
+      return;
+    }
+    if (mediaRef.current.ended) {
+      return;
+    }
+    mediaRef.current.play().catch(() => {});
+  };
+
+  const handleEnded = () => {
+    if (!shouldManageFlow || !isPlaying || typeof onMediaCompleted !== 'function') {
+      return;
+    }
+    onMediaCompleted();
+  };
+
+  const buildMediaControls = () => {
+    if (!shouldManageFlow) {
+      return true;
+    }
+    return false;
+  };
 
   if (mediaType === 'text' || !mediaType) {
     return (
@@ -64,9 +129,40 @@ const MediaDisplay = ({ mediaType, mediaUrl, text, question, factStage = 1 }) =>
     return (
       <div className="space-y-4">
         {mediaUrl ? (
-          <video controls className="max-w-full max-h-96 rounded-xl shadow-md mx-auto" src={mediaUrl}>
-            Your browser does not support the video tag.
-          </video>
+          <>
+            {isPending && (
+              <div className="rounded-xl border border-[#7354b3] bg-[#1a1230] p-6 text-center space-y-4">
+                <p className="text-lg font-semibold">Видео готово к запуску</p>
+                {canControlMedia ? (
+                  <button type="button" onClick={onStartMedia} className="btn btn-primary">
+                    Start Video
+                  </button>
+                ) : (
+                  <p className="text-muted">Ожидаем старт от ведущего...</p>
+                )}
+              </div>
+            )}
+
+            {(isPlaying || isCompleted || !shouldManageFlow) && (
+              <div className="space-y-3">
+                <video
+                  key={mediaKey}
+                  ref={mediaRef}
+                  controls={buildMediaControls()}
+                  onPause={handlePause}
+                  onEnded={handleEnded}
+                  controlsList={shouldManageFlow ? 'nodownload noplaybackrate nofullscreen' : undefined}
+                  className="max-w-full max-h-96 rounded-xl shadow-md mx-auto"
+                  src={mediaUrl}
+                >
+                  Your browser does not support the video tag.
+                </video>
+                {autoplayBlocked && isPlaying && (
+                  <p className="text-center text-sm text-muted">Если видео не стартовало автоматически, нажмите Play один раз.</p>
+                )}
+              </div>
+            )}
+          </>
         ) : (
           <Placeholder label="Video placeholder" />
         )}
@@ -79,10 +175,40 @@ const MediaDisplay = ({ mediaType, mediaUrl, text, question, factStage = 1 }) =>
     return (
       <div className="space-y-4">
         {mediaUrl ? (
-          <audio controls className="w-full">
-            <source src={mediaUrl} />
-            Your browser does not support the audio tag.
-          </audio>
+          <>
+            {isPending && (
+              <div className="rounded-xl border border-[#7354b3] bg-[#1a1230] p-6 text-center space-y-4">
+                <p className="text-lg font-semibold">Аудио готово к запуску</p>
+                {canControlMedia ? (
+                  <button type="button" onClick={onStartMedia} className="btn btn-primary">
+                    Start Audio
+                  </button>
+                ) : (
+                  <p className="text-muted">Ожидаем старт от ведущего...</p>
+                )}
+              </div>
+            )}
+
+            {(isPlaying || isCompleted || !shouldManageFlow) && (
+              <div className="space-y-3">
+                <audio
+                  key={mediaKey}
+                  ref={mediaRef}
+                  controls={buildMediaControls()}
+                  onPause={handlePause}
+                  onEnded={handleEnded}
+                  controlsList={shouldManageFlow ? 'nodownload noplaybackrate' : undefined}
+                  className="w-full"
+                  src={mediaUrl}
+                >
+                  Your browser does not support the audio tag.
+                </audio>
+                {autoplayBlocked && isPlaying && (
+                  <p className="text-center text-sm text-muted">Если аудио не стартовало автоматически, нажмите Play один раз.</p>
+                )}
+              </div>
+            )}
+          </>
         ) : (
           <Placeholder label="Audio placeholder" />
         )}

@@ -24,10 +24,36 @@ const mediaAcceptByType = {
   audio: 'audio/*',
 };
 
+const defaultQuestionDraft = () => ({
+  round: 1,
+  text: '',
+  facts: ['', '', ''],
+  mediaType: 'text',
+  mediaUrl: '',
+  correctAnswer: '',
+  timeLimitSec: 30,
+});
+
+const normalizeFacts = (facts = []) => {
+  const base = Array.isArray(facts) ? facts.slice(0, 3) : [];
+  while (base.length < 3) {
+    base.push('');
+  }
+  return base;
+};
+
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { gameState, startQuestion, showResults, resetToWaiting, restartFromFirstQuestion } = useGameState();
+  const {
+    gameState,
+    startQuestion,
+    startMediaPlayback,
+    completeMediaPlaybackAndStartTimer,
+    showResults,
+    resetToWaiting,
+    restartFromFirstQuestion,
+  } = useGameState();
   const { questions, loading: questionsLoading, addQuestion, updateQuestion, deleteQuestion } = useQuestions();
   const { users, incrementUserScore, deleteUser } = useUsers();
 
@@ -35,49 +61,42 @@ const AdminDashboard = () => {
   const { answers, markAnswer, clearAllAnswers } = useAnswers(currentQuestion?.docId);
 
   const [showAddQuestion, setShowAddQuestion] = useState(false);
-  const [newQuestion, setNewQuestion] = useState({
-    text: '',
-    mediaType: 'text',
-    mediaUrl: '',
-    correctAnswer: '',
-    timeLimitSec: 30,
-  });
+  const [newQuestion, setNewQuestion] = useState(defaultQuestionDraft);
   const [mediaFile, setMediaFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingQuestionId, setEditingQuestionId] = useState(null);
-  const [editQuestion, setEditQuestion] = useState({
-    text: '',
-    mediaType: 'text',
-    mediaUrl: '',
-    correctAnswer: '',
-    timeLimitSec: 30,
-  });
+  const [editQuestion, setEditQuestion] = useState(defaultQuestionDraft);
   const [editMediaFile, setEditMediaFile] = useState(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [previewQuestionIndex, setPreviewQuestionIndex] = useState(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const isRound4CurrentQuestion = Number(currentQuestion?.round) === 4;
+  const isRound5CurrentQuestion = Number(currentQuestion?.round) === 5;
+  const isManagedMediaQuestion = currentQuestion?.mediaType === 'audio' || currentQuestion?.mediaType === 'video';
+  const mediaPlaybackState = gameState.mediaPlaybackState || 'completed';
   const factDurationSec = 30;
   const round4TotalSec = factDurationSec * 3;
   const defaultTimeLimitSec = Number(currentQuestion?.timeLimitSec || 30);
   const timeLimitSec = isRound4CurrentQuestion ? round4TotalSec : defaultTimeLimitSec;
   const questionStartedAt = Number(gameState.questionStartedAt || 0);
   const hasActiveTimer = gameState.status === 'question_active' && questionStartedAt > 0;
-  const elapsedSec = hasActiveTimer ? Math.max(0, Math.floor((nowMs - questionStartedAt) / 1000)) : 0;
+  const elapsedMs = hasActiveTimer ? Math.max(0, nowMs - questionStartedAt) : 0;
+  const elapsedSec = Math.floor(elapsedMs / 1000);
   const round4FactStage = isRound4CurrentQuestion
-    ? Math.min(3, Math.floor(elapsedSec / factDurationSec) + 1)
+    ? Math.min(3, Math.floor(elapsedMs / (factDurationSec * 1000)) + 1)
     : 1;
   const remainingInFactSec = isRound4CurrentQuestion
-    ? Math.max(0, factDurationSec - (elapsedSec % factDurationSec))
+    ? Math.ceil(Math.max(0, factDurationSec * 1000 - (elapsedMs % (factDurationSec * 1000))) / 1000)
     : 0;
   const remainingMs = hasActiveTimer
     ? Math.max(0, questionStartedAt + timeLimitSec * 1000 - nowMs)
     : timeLimitSec * 1000;
   const remainingSec = Math.ceil(remainingMs / 1000);
+  const timerWaitingForMedia = gameState.status === 'question_active' && !hasActiveTimer && isManagedMediaQuestion;
   const progressPercent = hasActiveTimer ? (remainingMs / (timeLimitSec * 1000)) * 100 : 100;
   const factProgressPercent = isRound4CurrentQuestion
-    ? (remainingInFactSec / factDurationSec) * 100
+    ? (Math.max(0, factDurationSec * 1000 - (elapsedMs % (factDurationSec * 1000))) / (factDurationSec * 1000)) * 100
     : progressPercent;
   const timerDangerThreshold = isRound4CurrentQuestion
     ? Math.max(5, Math.floor(factDurationSec * 0.25))
@@ -109,7 +128,9 @@ const AdminDashboard = () => {
 
   const handleStartQuestion = async (index) => {
     try {
-      await startQuestion(index);
+      const targetQuestion = questions[index];
+      const waitForMedia = targetQuestion?.mediaType === 'audio' || targetQuestion?.mediaType === 'video';
+      await startQuestion(index, { waitForMedia });
     } catch (error) {
       alert('Failed to start question: ' + error.message);
     }
@@ -134,11 +155,23 @@ const AdminDashboard = () => {
     try {
       const answerRecord = answers.find((answer) => answer.id === answerId);
       const factStageAtSubmit = Number(answerRecord?.round4FactStageAtSubmit || round4FactStage);
-      const pointsForAnswer = isCorrect
-        ? (isRound4CurrentQuestion ? Math.max(1, 4 - factStageAtSubmit) : 1)
-        : 0;
+      const isRound5BetPlaced = Boolean(answerRecord?.round5BetPlaced);
+      let pointsForAnswer = 0;
+
+      if (isRound4CurrentQuestion) {
+        pointsForAnswer = isCorrect ? Math.max(1, 4 - factStageAtSubmit) : 0;
+      } else if (isRound5CurrentQuestion) {
+        if (isCorrect) {
+          pointsForAnswer = isRound5BetPlaced ? 2 : 1;
+        } else {
+          pointsForAnswer = isRound5BetPlaced ? -2 : 0;
+        }
+      } else {
+        pointsForAnswer = isCorrect ? 1 : 0;
+      }
+
       await markAnswer(answerId, isCorrect, pointsForAnswer);
-      if (isCorrect) {
+      if (pointsForAnswer !== 0) {
         await incrementUserScore(userId, pointsForAnswer);
       }
     } catch (error) {
@@ -181,13 +214,7 @@ const AdminDashboard = () => {
   };
 
   const resetQuestionForm = () => {
-    setNewQuestion({
-      text: '',
-      mediaType: 'text',
-      mediaUrl: '',
-      correctAnswer: '',
-      timeLimitSec: 30,
-    });
+    setNewQuestion(defaultQuestionDraft());
     setMediaFile(null);
     setShowAddQuestion(false);
   };
@@ -195,6 +222,7 @@ const AdminDashboard = () => {
   const handleCreateQuestion = async (e) => {
     e.preventDefault();
 
+    const round = Number(newQuestion.round || 1);
     if (!newQuestion.text.trim() || !newQuestion.correctAnswer.trim()) {
       alert('Please fill in question text and correct answer');
       return;
@@ -205,9 +233,15 @@ const AdminDashboard = () => {
       return;
     }
 
-    const timerSec = Number(newQuestion.timeLimitSec);
+    const timerSec = round === 5 ? 30 : Number(newQuestion.timeLimitSec);
     if (!Number.isFinite(timerSec) || timerSec < 5 || timerSec > 600) {
       alert('Timer should be between 5 and 600 seconds');
+      return;
+    }
+
+    const facts = normalizeFacts(newQuestion.facts);
+    if (round === 4 && facts.some((fact) => !fact.trim())) {
+      alert('Round 4 requires three separate facts');
       return;
     }
 
@@ -219,6 +253,8 @@ const AdminDashboard = () => {
       await addQuestion({
         id: questionId,
         text: newQuestion.text.trim(),
+        round,
+        facts: round === 4 ? facts.map((fact) => fact.trim()) : [],
         mediaType: newQuestion.mediaType,
         mediaUrl,
         correctAnswer: newQuestion.correctAnswer.trim(),
@@ -250,7 +286,9 @@ const AdminDashboard = () => {
   const startEditQuestion = (question) => {
     setEditingQuestionId(question.docId);
     setEditQuestion({
+      round: Number(question.round || 1),
       text: question.text || '',
+      facts: normalizeFacts(question.facts),
       mediaType: question.mediaType || 'text',
       mediaUrl: question.mediaUrl || '',
       correctAnswer: question.correctAnswer || '',
@@ -261,13 +299,7 @@ const AdminDashboard = () => {
 
   const cancelEditQuestion = () => {
     setEditingQuestionId(null);
-    setEditQuestion({
-      text: '',
-      mediaType: 'text',
-      mediaUrl: '',
-      correctAnswer: '',
-      timeLimitSec: 30,
-    });
+    setEditQuestion(defaultQuestionDraft());
     setEditMediaFile(null);
   };
 
@@ -285,9 +317,16 @@ const AdminDashboard = () => {
       return;
     }
 
-    const timerSec = Number(editQuestion.timeLimitSec);
+    const round = Number(editQuestion.round || 1);
+    const timerSec = round === 5 ? 30 : Number(editQuestion.timeLimitSec);
     if (!Number.isFinite(timerSec) || timerSec < 5 || timerSec > 600) {
       alert('Timer should be between 5 and 600 seconds');
+      return;
+    }
+
+    const facts = normalizeFacts(editQuestion.facts);
+    if (round === 4 && facts.some((fact) => !fact.trim())) {
+      alert('Round 4 requires three separate facts');
       return;
     }
 
@@ -295,7 +334,9 @@ const AdminDashboard = () => {
     try {
       const mediaUrl = await uploadEditedMediaIfNeeded();
       await updateQuestion(editingQuestionId, {
+        round,
         text: editQuestion.text.trim(),
+        facts: round === 4 ? facts.map((fact) => fact.trim()) : [],
         mediaType: editQuestion.mediaType,
         mediaUrl,
         correctAnswer: editQuestion.correctAnswer.trim(),
@@ -363,6 +404,28 @@ const AdminDashboard = () => {
     }
   };
 
+  const handleStartManagedMedia = async () => {
+    try {
+      if (mediaPlaybackState !== 'pending') {
+        return;
+      }
+      await startMediaPlayback();
+    } catch (error) {
+      alert('Failed to start media: ' + error.message);
+    }
+  };
+
+  const handleManagedMediaEnded = async () => {
+    try {
+      if (mediaPlaybackState !== 'playing') {
+        return;
+      }
+      await completeMediaPlaybackAndStartTimer();
+    } catch (error) {
+      alert('Failed to start timer after media: ' + error.message);
+    }
+  };
+
   if (questionsLoading) {
     return <LoadingSpinner />;
   }
@@ -412,13 +475,17 @@ const AdminDashboard = () => {
                       {isRound4CurrentQuestion ? `Admin timer - Факт ${round4FactStage}/3` : 'Admin timer'}
                     </p>
                     <p className={`text-sm font-semibold ${remainingSec <= 0 ? 'text-rose-300' : 'text-violet-200'}`}>
-                      {isRound4CurrentQuestion ? `${remainingInFactSec}s` : `${remainingSec}s`}
+                      {timerWaitingForMedia
+                        ? 'Старт после завершения медиа'
+                        : isRound4CurrentQuestion
+                          ? `${remainingInFactSec}s`
+                          : `${remainingSec}s`}
                     </p>
                   </div>
                   <div className="timer-track">
                     <div
                       className={`timer-fill ${isTimerInDanger ? 'danger' : ''}`}
-                      style={{ width: `${Math.max(0, Math.min(100, factProgressPercent))}%` }}
+                      style={{ width: `${timerWaitingForMedia ? 100 : Math.max(0, Math.min(100, factProgressPercent))}%` }}
                     />
                   </div>
                 </div>
@@ -431,7 +498,16 @@ const AdminDashboard = () => {
                   question={currentQuestion}
                   questionNumber={gameState.currentQuestionIndex + 1}
                   factStage={round4FactStage}
+                  mediaMode="quiz"
+                  mediaPlaybackState={mediaPlaybackState}
+                  canControlMedia
+                  onStartMedia={handleStartManagedMedia}
+                  onMediaCompleted={handleManagedMediaEnded}
                 />
+                <div className="surface-card p-4 sm:p-5">
+                  <p className="text-sm text-muted">Правильный ответ</p>
+                  <p className="text-lg font-semibold mt-1">{currentQuestion.correctAnswer}</p>
+                </div>
                 {isRound4CurrentQuestion && (
                   <div className="surface-card p-4 sm:p-5 flex flex-wrap items-center gap-2.5">
                     <span className="badge badge-neutral">Факт {round4FactStage} из 3</span>
@@ -458,6 +534,46 @@ const AdminDashboard = () => {
 
               {showAddQuestion && (
                 <form onSubmit={handleCreateQuestion} className="surface-card p-4 sm:p-5 mb-5 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="field-label block">Round</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="20"
+                        step="1"
+                        value={newQuestion.round}
+                        onChange={(e) => {
+                          const round = Number(e.target.value || 1);
+                          setNewQuestion((prev) => ({
+                            ...prev,
+                            round,
+                            timeLimitSec: round === 5 ? 30 : prev.timeLimitSec,
+                          }));
+                        }}
+                        className="field-input"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="field-label block">Timer (sec)</label>
+                      <input
+                        type="number"
+                        min="5"
+                        max="600"
+                        step="1"
+                        value={newQuestion.round === 5 ? 30 : newQuestion.timeLimitSec}
+                        onChange={(e) => setNewQuestion({ ...newQuestion, timeLimitSec: e.target.value })}
+                        className="field-input"
+                        disabled={Number(newQuestion.round) === 5}
+                        required
+                      />
+                      {Number(newQuestion.round) === 5 && (
+                        <p className="text-xs text-muted mt-2">Для 5 раунда таймер фиксирован: 30 сек.</p>
+                      )}
+                    </div>
+                  </div>
+
                   <div>
                     <label className="field-label block">Question Text</label>
                     <textarea
@@ -468,6 +584,27 @@ const AdminDashboard = () => {
                       required
                     />
                   </div>
+
+                  {Number(newQuestion.round) === 4 && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {newQuestion.facts.map((fact, factIndex) => (
+                        <div key={factIndex}>
+                          <label className="field-label block">Факт {factIndex + 1}</label>
+                          <textarea
+                            value={fact}
+                            onChange={(e) => {
+                              const nextFacts = [...newQuestion.facts];
+                              nextFacts[factIndex] = e.target.value;
+                              setNewQuestion({ ...newQuestion, facts: nextFacts });
+                            }}
+                            className="field-textarea"
+                            rows="3"
+                            required
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
@@ -492,20 +629,6 @@ const AdminDashboard = () => {
                         <option value="video">Video</option>
                         <option value="audio">Audio</option>
                       </select>
-                    </div>
-
-                    <div>
-                      <label className="field-label block">Timer (sec)</label>
-                      <input
-                        type="number"
-                        min="5"
-                        max="600"
-                        step="1"
-                        value={newQuestion.timeLimitSec}
-                        onChange={(e) => setNewQuestion({ ...newQuestion, timeLimitSec: e.target.value })}
-                        className="field-input"
-                        required
-                      />
                     </div>
                   </div>
 
@@ -582,22 +705,37 @@ const AdminDashboard = () => {
                               </div>
 
                               <div>
-                                <label className="field-label block">Question Text / Facts</label>
+                                <label className="field-label block">Question Text</label>
                                 <textarea
                                   value={editQuestion.text}
                                   onChange={(e) => setEditQuestion({ ...editQuestion, text: e.target.value })}
                                   className="field-textarea"
-                                  rows="5"
+                                  rows="4"
                                   required
                                 />
-                                {Number(question.round) === 4 && (
-                                  <p className="text-xs text-muted mt-2">
-                                    Для 4-го раунда удобно писать по одному факту с новой строки.
-                                  </p>
-                                )}
                               </div>
 
                               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <label className="field-label block">Round</label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="20"
+                                    step="1"
+                                    value={editQuestion.round}
+                                    onChange={(e) => {
+                                      const round = Number(e.target.value || 1);
+                                      setEditQuestion((prev) => ({
+                                        ...prev,
+                                        round,
+                                        timeLimitSec: round === 5 ? 30 : prev.timeLimitSec,
+                                      }));
+                                    }}
+                                    className="field-input"
+                                    required
+                                  />
+                                </div>
                                 <div>
                                   <label className="field-label block">Media Type</label>
                                   <select
@@ -621,7 +759,30 @@ const AdminDashboard = () => {
                                     <option value="audio">Audio</option>
                                   </select>
                                 </div>
+                              </div>
 
+                              {Number(editQuestion.round) === 4 && (
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                  {editQuestion.facts.map((fact, factIndex) => (
+                                    <div key={factIndex}>
+                                      <label className="field-label block">Факт {factIndex + 1}</label>
+                                      <textarea
+                                        value={fact}
+                                        onChange={(e) => {
+                                          const nextFacts = [...editQuestion.facts];
+                                          nextFacts[factIndex] = e.target.value;
+                                          setEditQuestion({ ...editQuestion, facts: nextFacts });
+                                        }}
+                                        className="field-textarea"
+                                        rows="3"
+                                        required
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                   <label className="field-label block">Timer (sec)</label>
                                   <input
@@ -629,11 +790,15 @@ const AdminDashboard = () => {
                                     min="5"
                                     max="600"
                                     step="1"
-                                    value={editQuestion.timeLimitSec}
+                                    value={Number(editQuestion.round) === 5 ? 30 : editQuestion.timeLimitSec}
                                     onChange={(e) => setEditQuestion({ ...editQuestion, timeLimitSec: e.target.value })}
                                     className="field-input"
+                                    disabled={Number(editQuestion.round) === 5}
                                     required
                                   />
+                                  {Number(editQuestion.round) === 5 && (
+                                    <p className="text-xs text-muted mt-2">Для 5 раунда таймер фиксирован: 30 сек.</p>
+                                  )}
                                 </div>
                               </div>
 
@@ -695,6 +860,7 @@ const AdminDashboard = () => {
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2 mb-2">
                                   <span className="font-bold">Q{index + 1}</span>
+                                  <span className="badge badge-neutral">Round {question.round || 1}</span>
                                   <span className="badge badge-neutral">{question.mediaType}</span>
                                   <span className="badge badge-neutral">{question.timeLimitSec || 30}s</span>
                                 </div>
