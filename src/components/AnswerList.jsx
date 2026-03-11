@@ -33,10 +33,17 @@ const AnswerList = ({ answers, users, onMarkAnswer }) => {
               <div>
                 <p className="font-semibold">{getUserName(answer.userId)}</p>
                 <p className="mt-1 text-[#ddd2ff]">{answer.answerText}</p>
+                {answer.round4FactStageAtSubmit && (
+                  <p className="mt-1 text-xs text-violet-300">
+                    Ответ отправлен на факте {answer.round4FactStageAtSubmit}
+                  </p>
+                )}
 
                 {answer.isCorrect !== null && (
                   <span className={`badge mt-3 ${answer.isCorrect ? 'bg-[#2c7f72] text-white' : 'bg-[#a13d66] text-white'}`}>
-                    {answer.isCorrect ? 'Correct' : 'Incorrect'}
+                    {answer.isCorrect
+                      ? `Correct (+${Number(answer.awardedPoints || 0)} pts)`
+                      : 'Incorrect'}
                   </span>
                 )}
               </div>

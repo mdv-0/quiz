@@ -54,11 +54,11 @@ export const useUsers = () => {
     }
   };
 
-  const incrementUserScore = async (userId) => {
+  const incrementUserScore = async (userId, points = 1) => {
     try {
       const user = users.find(u => u.id === userId);
       if (user) {
-        await updateUserScore(userId, user.score + 1);
+        await updateUserScore(userId, user.score + points);
       }
     } catch (err) {
       setError(err.message);

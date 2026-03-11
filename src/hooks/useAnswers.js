@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, addDoc, updateDoc, doc, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, doc, query, where, limit } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
 export const useAnswers = (questionId = null) => {
@@ -35,14 +35,28 @@ export const useAnswers = (questionId = null) => {
     return () => unsubscribe();
   }, [questionId]);
 
-  const submitAnswer = async (userId, questionId, answerText) => {
+  const submitAnswer = async (userId, questionId, answerText, metadata = {}) => {
     try {
       const answersRef = collection(db, 'answers');
+      const existingQuery = query(
+        answersRef,
+        where('userId', '==', userId),
+        where('questionId', '==', questionId),
+        limit(1)
+      );
+      const existingSnapshot = await getDocs(existingQuery);
+
+      if (!existingSnapshot.empty) {
+        throw new Error('Answer already submitted for this question');
+      }
+
       const docRef = await addDoc(answersRef, {
         userId,
         questionId,
         answerText,
+        round4FactStageAtSubmit: metadata.round4FactStageAtSubmit ?? null,
         isCorrect: null,
+        awardedPoints: 0,
         timestamp: new Date()
       });
       return docRef.id;
@@ -52,10 +66,21 @@ export const useAnswers = (questionId = null) => {
     }
   };
 
-  const markAnswer = async (answerId, isCorrect) => {
+  const markAnswer = async (answerId, isCorrect, points = 1) => {
     try {
       const answerRef = doc(db, 'answers', answerId);
-      await updateDoc(answerRef, { isCorrect });
+      await updateDoc(answerRef, { isCorrect, awardedPoints: isCorrect ? points : 0 });
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const clearAllAnswers = async () => {
+    try {
+      const answersRef = collection(db, 'answers');
+      const snapshot = await getDocs(answersRef);
+      await Promise.all(snapshot.docs.map((answerDoc) => deleteDoc(doc(db, 'answers', answerDoc.id))));
     } catch (err) {
       setError(err.message);
       throw err;
@@ -67,6 +92,7 @@ export const useAnswers = (questionId = null) => {
     loading: questionId ? loading : false,
     error,
     submitAnswer,
-    markAnswer
+    markAnswer,
+    clearAllAnswers
   };
 };

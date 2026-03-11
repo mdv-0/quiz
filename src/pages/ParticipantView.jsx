@@ -29,16 +29,35 @@ const ParticipantView = () => {
   const hasSubmitted = Boolean(submittedByQuestion[currentQuestionIndex]);
 
   const currentQuestion = questions[currentQuestionIndex];
-  const timeLimitSec = Number(currentQuestion?.timeLimitSec || 30);
+  const isRound4CurrentQuestion = Number(currentQuestion?.round) === 4;
+  const factDurationSec = 30;
+  const round4TotalSec = factDurationSec * 3;
+  const defaultTimeLimitSec = Number(currentQuestion?.timeLimitSec || 30);
+  const timeLimitSec = isRound4CurrentQuestion ? round4TotalSec : defaultTimeLimitSec;
   const questionStartedAt = Number(gameState.questionStartedAt || 0);
   const hasActiveTimer = gameState.status === 'question_active' && questionStartedAt > 0;
+  const elapsedSec = hasActiveTimer ? Math.max(0, Math.floor((nowMs - questionStartedAt) / 1000)) : 0;
+  const autoRound4FactStage = isRound4CurrentQuestion
+    ? Math.min(3, Math.floor(elapsedSec / factDurationSec) + 1)
+    : 1;
   const remainingMs = hasActiveTimer
     ? Math.max(0, questionStartedAt + timeLimitSec * 1000 - nowMs)
     : timeLimitSec * 1000;
   const remainingSec = Math.ceil(remainingMs / 1000);
   const progressPercent = hasActiveTimer ? (remainingMs / (timeLimitSec * 1000)) * 100 : 100;
   const isTimeExpired = hasActiveTimer && remainingMs <= 0;
-  const isTimerInDanger = remainingSec <= Math.max(5, Math.floor(timeLimitSec * 0.25));
+  const remainingInFactSec = isRound4CurrentQuestion
+    ? Math.max(0, factDurationSec - (elapsedSec % factDurationSec))
+    : remainingSec;
+  const factProgressPercent = isRound4CurrentQuestion
+    ? (remainingInFactSec / factDurationSec) * 100
+    : progressPercent;
+  const timerDangerThreshold = isRound4CurrentQuestion
+    ? Math.max(5, Math.floor(factDurationSec * 0.25))
+    : Math.max(5, Math.floor(timeLimitSec * 0.25));
+  const isTimerInDanger = isRound4CurrentQuestion
+    ? remainingInFactSec <= timerDangerThreshold
+    : remainingSec <= timerDangerThreshold;
 
   useEffect(() => {
     if (!hasJoined || !userId) {
@@ -91,7 +110,9 @@ const ParticipantView = () => {
     if (!answerText.trim() || !userId || isTimeExpired) return;
 
     try {
-      await submitAnswer(userId, currentQuestion.docId, answerText.trim());
+      await submitAnswer(userId, currentQuestion.docId, answerText.trim(), {
+        round4FactStageAtSubmit: isRound4CurrentQuestion ? autoRound4FactStage : null,
+      });
       setSubmittedByQuestion((prev) => ({ ...prev, [currentQuestionIndex]: true }));
     } catch (error) {
       alert('Failed to submit answer: ' + error.message);
@@ -168,20 +189,26 @@ const ParticipantView = () => {
 
           <div className="surface-card p-4 sm:p-5 sticky top-3 z-20">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-sm text-muted">Таймер вопроса</p>
+              <p className="text-sm text-muted">
+                {isRound4CurrentQuestion ? `Факт ${autoRound4FactStage}/3` : 'Таймер вопроса'}
+              </p>
               <p className={`text-sm font-semibold ${isTimeExpired ? 'text-rose-300' : 'text-violet-200'}`}>
-                {remainingSec}s
+                {isRound4CurrentQuestion ? `${remainingInFactSec}s` : `${remainingSec}s`}
               </p>
             </div>
             <div className="timer-track">
               <div
                 className={`timer-fill ${isTimerInDanger ? 'danger' : ''}`}
-                style={{ width: `${Math.max(0, Math.min(100, progressPercent))}%` }}
+                style={{ width: `${Math.max(0, Math.min(100, factProgressPercent))}%` }}
               />
             </div>
           </div>
 
-          <QuestionCard question={currentQuestion} questionNumber={currentQuestionIndex + 1} />
+          <QuestionCard
+            question={currentQuestion}
+            questionNumber={currentQuestionIndex + 1}
+            factStage={autoRound4FactStage}
+          />
 
           {!hasSubmitted ? (
             <div className="glass-card p-6 sm:p-8">

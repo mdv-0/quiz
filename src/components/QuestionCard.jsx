@@ -1,6 +1,6 @@
 import MediaDisplay from './MediaDisplay';
 
-const QuestionCard = ({ question, questionNumber }) => {
+const QuestionCard = ({ question, questionNumber, factStage = 1 }) => {
   if (!question) return null;
 
   return (
@@ -13,7 +13,7 @@ const QuestionCard = ({ question, questionNumber }) => {
         </div>
       </div>
 
-      <MediaDisplay mediaType={question.mediaType} mediaUrl={question.mediaUrl} text={question.text} />
+      <MediaDisplay mediaType={question.mediaType} mediaUrl={question.mediaUrl} text={question.text} question={question} factStage={factStage} />
     </section>
   );
 };

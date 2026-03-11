@@ -7,6 +7,7 @@ export const useGameState = () => {
     currentQuestionIndex: 0,
     status: 'waiting',
     questionStartedAt: null,
+    round4FactStage: 1,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -24,6 +25,7 @@ export const useGameState = () => {
             currentQuestionIndex: 0,
             status: 'waiting',
             questionStartedAt: null,
+            round4FactStage: 1,
           });
         }
         setLoading(false);
@@ -47,11 +49,12 @@ export const useGameState = () => {
     }
   };
 
-  const startQuestion = async (questionIndex) => {
+  const startQuestion = async (questionIndex, options = {}) => {
     await updateGameState({
       currentQuestionIndex: questionIndex,
       status: 'question_active',
       questionStartedAt: Date.now(),
+      round4FactStage: options.round4FactStage ?? 1,
     });
   };
 
@@ -59,6 +62,7 @@ export const useGameState = () => {
     await updateGameState({
       status: 'showing_results',
       questionStartedAt: null,
+      round4FactStage: 1,
     });
   };
 
@@ -66,6 +70,7 @@ export const useGameState = () => {
     await updateGameState({
       status: 'waiting',
       questionStartedAt: null,
+      round4FactStage: 1,
     });
   };
 
@@ -74,6 +79,7 @@ export const useGameState = () => {
       currentQuestionIndex: 0,
       status: 'waiting',
       questionStartedAt: null,
+      round4FactStage: 1,
     });
   };
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
@@ -27,12 +27,12 @@ const mediaAcceptByType = {
 const AdminDashboard = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { gameState, startQuestion, showResults, resetToWaiting, restartFromFirstQuestion, updateGameState } = useGameState();
-  const { questions, loading: questionsLoading, addQuestion, deleteQuestion } = useQuestions();
+  const { gameState, startQuestion, showResults, resetToWaiting, restartFromFirstQuestion } = useGameState();
+  const { questions, loading: questionsLoading, addQuestion, updateQuestion, deleteQuestion } = useQuestions();
   const { users, incrementUserScore, deleteUser } = useUsers();
 
   const currentQuestion = questions[gameState.currentQuestionIndex];
-  const { answers, markAnswer } = useAnswers(currentQuestion?.docId);
+  const { answers, markAnswer, clearAllAnswers } = useAnswers(currentQuestion?.docId);
 
   const [showAddQuestion, setShowAddQuestion] = useState(false);
   const [newQuestion, setNewQuestion] = useState({
@@ -44,6 +44,59 @@ const AdminDashboard = () => {
   });
   const [mediaFile, setMediaFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingQuestionId, setEditingQuestionId] = useState(null);
+  const [editQuestion, setEditQuestion] = useState({
+    text: '',
+    mediaType: 'text',
+    mediaUrl: '',
+    correctAnswer: '',
+    timeLimitSec: 30,
+  });
+  const [editMediaFile, setEditMediaFile] = useState(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [previewQuestionIndex, setPreviewQuestionIndex] = useState(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const isRound4CurrentQuestion = Number(currentQuestion?.round) === 4;
+  const factDurationSec = 30;
+  const round4TotalSec = factDurationSec * 3;
+  const defaultTimeLimitSec = Number(currentQuestion?.timeLimitSec || 30);
+  const timeLimitSec = isRound4CurrentQuestion ? round4TotalSec : defaultTimeLimitSec;
+  const questionStartedAt = Number(gameState.questionStartedAt || 0);
+  const hasActiveTimer = gameState.status === 'question_active' && questionStartedAt > 0;
+  const elapsedSec = hasActiveTimer ? Math.max(0, Math.floor((nowMs - questionStartedAt) / 1000)) : 0;
+  const round4FactStage = isRound4CurrentQuestion
+    ? Math.min(3, Math.floor(elapsedSec / factDurationSec) + 1)
+    : 1;
+  const remainingInFactSec = isRound4CurrentQuestion
+    ? Math.max(0, factDurationSec - (elapsedSec % factDurationSec))
+    : 0;
+  const remainingMs = hasActiveTimer
+    ? Math.max(0, questionStartedAt + timeLimitSec * 1000 - nowMs)
+    : timeLimitSec * 1000;
+  const remainingSec = Math.ceil(remainingMs / 1000);
+  const progressPercent = hasActiveTimer ? (remainingMs / (timeLimitSec * 1000)) * 100 : 100;
+  const factProgressPercent = isRound4CurrentQuestion
+    ? (remainingInFactSec / factDurationSec) * 100
+    : progressPercent;
+  const timerDangerThreshold = isRound4CurrentQuestion
+    ? Math.max(5, Math.floor(factDurationSec * 0.25))
+    : Math.max(5, Math.floor(timeLimitSec * 0.25));
+  const isTimerInDanger = isRound4CurrentQuestion
+    ? remainingInFactSec <= timerDangerThreshold
+    : remainingSec <= timerDangerThreshold;
+
+  useEffect(() => {
+    if (gameState.status !== 'question_active') {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 250);
+
+    return () => clearInterval(timer);
+  }, [gameState.status]);
 
   const handleLogout = async () => {
     try {
@@ -79,9 +132,14 @@ const AdminDashboard = () => {
 
   const handleMarkAnswer = async (answerId, userId, isCorrect) => {
     try {
-      await markAnswer(answerId, isCorrect);
+      const answerRecord = answers.find((answer) => answer.id === answerId);
+      const factStageAtSubmit = Number(answerRecord?.round4FactStageAtSubmit || round4FactStage);
+      const pointsForAnswer = isCorrect
+        ? (isRound4CurrentQuestion ? Math.max(1, 4 - factStageAtSubmit) : 1)
+        : 0;
+      await markAnswer(answerId, isCorrect, pointsForAnswer);
       if (isCorrect) {
-        await incrementUserScore(userId);
+        await incrementUserScore(userId, pointsForAnswer);
       }
     } catch (error) {
       alert('Failed to mark answer: ' + error.message);
@@ -103,6 +161,23 @@ const AdminDashboard = () => {
     }
 
     return newQuestion.mediaUrl.trim();
+  };
+
+  const uploadEditedMediaIfNeeded = async () => {
+    if (editQuestion.mediaType === 'text') {
+      return '';
+    }
+
+    if (editMediaFile) {
+      const safeFileName = editMediaFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filePath = `question-media/${Date.now()}_${safeFileName}`;
+      const mediaRef = ref(storage, filePath);
+
+      await uploadBytes(mediaRef, editMediaFile);
+      return await getDownloadURL(mediaRef);
+    }
+
+    return editQuestion.mediaUrl.trim();
   };
 
   const resetQuestionForm = () => {
@@ -172,6 +247,68 @@ const AdminDashboard = () => {
     }
   };
 
+  const startEditQuestion = (question) => {
+    setEditingQuestionId(question.docId);
+    setEditQuestion({
+      text: question.text || '',
+      mediaType: question.mediaType || 'text',
+      mediaUrl: question.mediaUrl || '',
+      correctAnswer: question.correctAnswer || '',
+      timeLimitSec: Number(question.timeLimitSec || 30),
+    });
+    setEditMediaFile(null);
+  };
+
+  const cancelEditQuestion = () => {
+    setEditingQuestionId(null);
+    setEditQuestion({
+      text: '',
+      mediaType: 'text',
+      mediaUrl: '',
+      correctAnswer: '',
+      timeLimitSec: 30,
+    });
+    setEditMediaFile(null);
+  };
+
+  const handleUpdateQuestion = async (e) => {
+    e.preventDefault();
+    if (!editingQuestionId) return;
+
+    if (!editQuestion.text.trim() || !editQuestion.correctAnswer.trim()) {
+      alert('Please fill in question text and correct answer');
+      return;
+    }
+
+    if (editQuestion.mediaType !== 'text' && !editMediaFile && !editQuestion.mediaUrl.trim()) {
+      alert('Add media URL or upload a local file for this media type');
+      return;
+    }
+
+    const timerSec = Number(editQuestion.timeLimitSec);
+    if (!Number.isFinite(timerSec) || timerSec < 5 || timerSec > 600) {
+      alert('Timer should be between 5 and 600 seconds');
+      return;
+    }
+
+    setIsUpdating(true);
+    try {
+      const mediaUrl = await uploadEditedMediaIfNeeded();
+      await updateQuestion(editingQuestionId, {
+        text: editQuestion.text.trim(),
+        mediaType: editQuestion.mediaType,
+        mediaUrl,
+        correctAnswer: editQuestion.correctAnswer.trim(),
+        timeLimitSec: timerSec,
+      });
+      cancelEditQuestion();
+    } catch (error) {
+      alert('Failed to update question: ' + error.message);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const handleDeleteUser = async (userId, userName) => {
     if (!confirm(`Delete participant "${userName}"? This action cannot be undone.`)) {
       return;
@@ -189,6 +326,7 @@ const AdminDashboard = () => {
       return;
     }
     try {
+      await clearAllAnswers();
       await restartFromFirstQuestion();
     } catch (error) {
       alert('Failed to restart quiz: ' + error.message);
@@ -207,13 +345,21 @@ const AdminDashboard = () => {
     }
 
     try {
-      await updateGameState({
-        currentQuestionIndex: nextIndex,
-        status: 'waiting',
-        questionStartedAt: null,
-      });
+      await handleStartQuestion(nextIndex);
     } catch (error) {
       alert('Failed to switch question: ' + error.message);
+    }
+  };
+
+  const handleStartCurrentQuestion = async () => {
+    try {
+      // Starting question #1 means a new game cycle: clear old answers first.
+      if (gameState.currentQuestionIndex === 0 && gameState.status === 'waiting') {
+        await clearAllAnswers();
+      }
+      await handleStartQuestion(gameState.currentQuestionIndex);
+    } catch (error) {
+      alert('Failed to start current question: ' + error.message);
     }
   };
 
@@ -222,6 +368,8 @@ const AdminDashboard = () => {
   }
 
   const isActiveQuestion = gameState.status === 'question_active' && currentQuestion;
+  const previewQuestion =
+    previewQuestionIndex === null ? null : questions[previewQuestionIndex] || null;
 
   return (
     <div className="control-shell">
@@ -243,6 +391,13 @@ const AdminDashboard = () => {
               <div className="flex flex-wrap items-center gap-2.5">
                 <p className="font-semibold">Game Status:</p>
                 <span className="badge badge-neutral">{statusText[gameState.status] || gameState.status}</span>
+                <button
+                  onClick={handleStartCurrentQuestion}
+                  disabled={gameState.status !== 'waiting' || questions.length === 0}
+                  className="btn btn-secondary"
+                >
+                  Start Current Question
+                </button>
                 <button onClick={handleSwitchToNextQuestion} className="btn btn-secondary">
                   Next Question
                 </button>
@@ -250,11 +405,39 @@ const AdminDashboard = () => {
                   Restart from Q1
                 </button>
               </div>
+              {gameState.status === 'question_active' && currentQuestion && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm text-muted">
+                      {isRound4CurrentQuestion ? `Admin timer - Факт ${round4FactStage}/3` : 'Admin timer'}
+                    </p>
+                    <p className={`text-sm font-semibold ${remainingSec <= 0 ? 'text-rose-300' : 'text-violet-200'}`}>
+                      {isRound4CurrentQuestion ? `${remainingInFactSec}s` : `${remainingSec}s`}
+                    </p>
+                  </div>
+                  <div className="timer-track">
+                    <div
+                      className={`timer-fill ${isTimerInDanger ? 'danger' : ''}`}
+                      style={{ width: `${Math.max(0, Math.min(100, factProgressPercent))}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </section>
 
             {isActiveQuestion && (
               <section className="space-y-4">
-                <QuestionCard question={currentQuestion} questionNumber={gameState.currentQuestionIndex + 1} />
+                <QuestionCard
+                  question={currentQuestion}
+                  questionNumber={gameState.currentQuestionIndex + 1}
+                  factStage={round4FactStage}
+                />
+                {isRound4CurrentQuestion && (
+                  <div className="surface-card p-4 sm:p-5 flex flex-wrap items-center gap-2.5">
+                    <span className="badge badge-neutral">Факт {round4FactStage} из 3</span>
+                    <span className="text-sm text-muted">Баллы за правильный ответ: {Math.max(1, 4 - round4FactStage)}</span>
+                  </div>
+                )}
                 <AnswerList answers={answers} users={users} onMarkAnswer={handleMarkAnswer} />
                 <button onClick={handleShowResults} className="btn btn-secondary w-full">
                   Show Results To All
@@ -384,48 +567,170 @@ const AdminDashboard = () => {
                   <div className="space-y-3">
                     {questions.map((question, index) => {
                       const isCurrent = gameState.currentQuestionIndex === index && gameState.status === 'question_active';
-                      const canStartThisQuestion =
-                        gameState.status === 'waiting' && index === gameState.currentQuestionIndex;
+                      const isEditingThisQuestion = editingQuestionId === question.docId;
 
                       return (
                         <article
                           key={question.docId}
                           className={`surface-card p-4 sm:p-5 border ${isCurrent ? 'border-[#8e5bff]' : 'border-transparent'}`}
                         >
-                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2 mb-2">
-                                <span className="font-bold">Q{index + 1}</span>
-                                <span className="badge badge-neutral">{question.mediaType}</span>
-                                <span className="badge badge-neutral">{question.timeLimitSec || 30}s</span>
+                          {isEditingThisQuestion ? (
+                            <form onSubmit={handleUpdateQuestion} className="space-y-4">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-bold">Editing Q{index + 1}</span>
+                                <span className="badge badge-neutral">{question.round ? `Round ${question.round}` : 'Question'}</span>
                               </div>
-                              <p className="font-medium">{question.text}</p>
-                              <p className="text-sm text-muted mt-2">Expected: {question.correctAnswer}</p>
-                            </div>
 
-                            <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center shrink-0">
-                              <button
-                                onClick={() => handleStartQuestion(index)}
-                                disabled={!canStartThisQuestion}
-                                className="btn btn-secondary"
-                                title={
-                                  canStartThisQuestion
-                                    ? 'Start this question'
-                                    : 'Сейчас можно запускать только текущий вопрос в режиме waiting'
-                                }
-                              >
-                                {isCurrent ? 'Active' : canStartThisQuestion ? 'Start' : 'Locked'}
-                              </button>
-                              <button
-                                onClick={() => handleDeleteQuestion(question.docId, question.text)}
-                                disabled={isCurrent}
-                                className="btn btn-danger"
-                                title="Delete question"
-                              >
-                                Delete
-                              </button>
+                              <div>
+                                <label className="field-label block">Question Text / Facts</label>
+                                <textarea
+                                  value={editQuestion.text}
+                                  onChange={(e) => setEditQuestion({ ...editQuestion, text: e.target.value })}
+                                  className="field-textarea"
+                                  rows="5"
+                                  required
+                                />
+                                {Number(question.round) === 4 && (
+                                  <p className="text-xs text-muted mt-2">
+                                    Для 4-го раунда удобно писать по одному факту с новой строки.
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <label className="field-label block">Media Type</label>
+                                  <select
+                                    value={editQuestion.mediaType}
+                                    onChange={(e) => {
+                                      const mediaType = e.target.value;
+                                      setEditQuestion({
+                                        ...editQuestion,
+                                        mediaType,
+                                        mediaUrl: mediaType === 'text' ? '' : editQuestion.mediaUrl,
+                                      });
+                                      if (mediaType === 'text') {
+                                        setEditMediaFile(null);
+                                      }
+                                    }}
+                                    className="field-select"
+                                  >
+                                    <option value="text">Text</option>
+                                    <option value="image">Image</option>
+                                    <option value="video">Video</option>
+                                    <option value="audio">Audio</option>
+                                  </select>
+                                </div>
+
+                                <div>
+                                  <label className="field-label block">Timer (sec)</label>
+                                  <input
+                                    type="number"
+                                    min="5"
+                                    max="600"
+                                    step="1"
+                                    value={editQuestion.timeLimitSec}
+                                    onChange={(e) => setEditQuestion({ ...editQuestion, timeLimitSec: e.target.value })}
+                                    className="field-input"
+                                    required
+                                  />
+                                </div>
+                              </div>
+
+                              {editQuestion.mediaType !== 'text' && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  <div>
+                                    <label className="field-label block">Media URL</label>
+                                    <input
+                                      type="url"
+                                      value={editQuestion.mediaUrl}
+                                      onChange={(e) => setEditQuestion({ ...editQuestion, mediaUrl: e.target.value })}
+                                      className="field-input"
+                                      placeholder="https://example.com/media"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="field-label block">Upload local {editQuestion.mediaType}</label>
+                                    <input
+                                      type="file"
+                                      accept={mediaAcceptByType[editQuestion.mediaType]}
+                                      onChange={(e) => setEditMediaFile(e.target.files?.[0] || null)}
+                                      className="field-input"
+                                    />
+                                    {editMediaFile && <p className="text-muted text-xs mt-2">Selected: {editMediaFile.name}</p>}
+                                  </div>
+                                </div>
+                              )}
+
+                              <div>
+                                <label className="field-label block">Correct Answer</label>
+                                <input
+                                  type="text"
+                                  value={editQuestion.correctAnswer}
+                                  onChange={(e) => setEditQuestion({ ...editQuestion, correctAnswer: e.target.value })}
+                                  className="field-input"
+                                  required
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                <button type="submit" disabled={isUpdating} className="btn btn-primary">
+                                  {isUpdating ? 'Saving...' : 'Save'}
+                                </button>
+                                <button type="button" onClick={cancelEditQuestion} className="btn bg-[#3a2a62] text-white hover:bg-[#4a347b]">
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteQuestion(question.docId, question.text)}
+                                  disabled={isCurrent || isUpdating}
+                                  className="btn btn-danger"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </form>
+                          ) : (
+                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2 mb-2">
+                                  <span className="font-bold">Q{index + 1}</span>
+                                  <span className="badge badge-neutral">{question.mediaType}</span>
+                                  <span className="badge badge-neutral">{question.timeLimitSec || 30}s</span>
+                                </div>
+                                <p className="font-medium">{question.text}</p>
+                                <p className="text-sm text-muted mt-2">Expected: {question.correctAnswer}</p>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setPreviewQuestionIndex(index)}
+                                  className="btn bg-[#3a2a62] text-white hover:bg-[#4a347b]"
+                                  title="Preview question"
+                                >
+                                  Preview
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => startEditQuestion(question)}
+                                  className="btn btn-secondary"
+                                  title="Edit question"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteQuestion(question.docId, question.text)}
+                                  disabled={isCurrent}
+                                  className="btn btn-danger"
+                                  title="Delete question"
+                                >
+                                  Delete
+                                </button>
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </article>
                       );
                     })}
@@ -433,6 +738,28 @@ const AdminDashboard = () => {
                 </details>
               )}
             </section>
+
+            {previewQuestion && (
+              <section className="fixed inset-0 z-50 bg-[#0c0718]/80 backdrop-blur-sm p-4 sm:p-8 overflow-y-auto">
+                <div className="max-w-4xl mx-auto space-y-4">
+                  <div className="surface-card p-4 sm:p-5 flex items-center justify-between gap-3">
+                    <h3 className="text-xl font-bold">Preview: Q{previewQuestionIndex + 1}</h3>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewQuestionIndex(null)}
+                      className="btn bg-[#3a2a62] text-white hover:bg-[#4a347b]"
+                    >
+                      Close Preview
+                    </button>
+                  </div>
+                  <QuestionCard
+                    question={previewQuestion}
+                    questionNumber={previewQuestionIndex + 1}
+                    factStage={Number(previewQuestion?.round) === 4 ? 3 : 1}
+                  />
+                </div>
+              </section>
+            )}
 
             {gameState.status === 'showing_results' && (
               <section className="surface-card p-5 sm:p-6 space-y-4">
