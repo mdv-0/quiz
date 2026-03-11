@@ -55,7 +55,7 @@ const AdminDashboard = () => {
     restartFromFirstQuestion,
   } = useGameState();
   const { questions, loading: questionsLoading, addQuestion, updateQuestion, deleteQuestion } = useQuestions();
-  const { users, incrementUserScore, deleteUser } = useUsers();
+  const { users, incrementUserScore, updateUserScore, deleteUser } = useUsers();
 
   const currentQuestion = questions[gameState.currentQuestionIndex];
   const { answers, markAnswer, clearAllAnswers } = useAnswers(currentQuestion?.docId);
@@ -69,6 +69,8 @@ const AdminDashboard = () => {
   const [editMediaFile, setEditMediaFile] = useState(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [previewQuestionIndex, setPreviewQuestionIndex] = useState(null);
+  const [scoreDrafts, setScoreDrafts] = useState({});
+  const [updatingScoreUserId, setUpdatingScoreUserId] = useState(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const isRound4CurrentQuestion = Number(currentQuestion?.round) === 4;
@@ -161,10 +163,11 @@ const AdminDashboard = () => {
       if (isRound4CurrentQuestion) {
         pointsForAnswer = isCorrect ? Math.max(1, 4 - factStageAtSubmit) : 0;
       } else if (isRound5CurrentQuestion) {
+        const isNoAnswer = Boolean(answerRecord?.round5NoAnswer);
         if (isCorrect) {
           pointsForAnswer = isRound5BetPlaced ? 2 : 1;
         } else {
-          pointsForAnswer = isRound5BetPlaced ? -2 : 0;
+          pointsForAnswer = isNoAnswer ? 0 : (isRound5BetPlaced ? -2 : 0);
         }
       } else {
         pointsForAnswer = isCorrect ? 1 : 0;
@@ -371,6 +374,31 @@ const AdminDashboard = () => {
       await restartFromFirstQuestion();
     } catch (error) {
       alert('Failed to restart quiz: ' + error.message);
+    }
+  };
+
+  const handleSetManualScore = async (participant) => {
+    const rawValue = scoreDrafts[participant.id];
+    const parsedScore = Number(rawValue);
+
+    if (!Number.isFinite(parsedScore)) {
+      alert('Введите корректное число очков');
+      return;
+    }
+
+    const nextScore = Math.trunc(parsedScore);
+    setUpdatingScoreUserId(participant.id);
+    try {
+      await updateUserScore(participant.id, nextScore);
+      setScoreDrafts((prev) => {
+        const next = { ...prev };
+        delete next[participant.id];
+        return next;
+      });
+    } catch (error) {
+      alert('Failed to update score: ' + error.message);
+    } finally {
+      setUpdatingScoreUserId(null);
     }
   };
 
@@ -978,19 +1006,50 @@ const AdminDashboard = () => {
                     {users.map((participant) => (
                       <article
                         key={participant.id}
-                        className="rounded-lg bg-[#2f2154] px-3 py-2.5 flex items-center justify-between gap-3"
+                        className="rounded-lg bg-[#2f2154] px-3 py-2.5 space-y-2.5"
                       >
-                        <div className="min-w-0">
-                          <p className="font-semibold truncate">{participant.name}</p>
-                          <p className="text-xs text-muted">{participant.score} pts</p>
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-semibold truncate">{participant.name}</p>
+                            <p className="text-xs text-muted">{participant.score} pts</p>
+                          </div>
+                          <button
+                            onClick={() => handleDeleteUser(participant.id, participant.name)}
+                            className="btn btn-danger !px-3 !py-2 !text-xs"
+                            title={`Delete ${participant.name}`}
+                          >
+                            Remove
+                          </button>
                         </div>
-                        <button
-                          onClick={() => handleDeleteUser(participant.id, participant.name)}
-                          className="btn btn-danger !px-3 !py-2 !text-xs"
-                          title={`Delete ${participant.name}`}
+
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            handleSetManualScore(participant);
+                          }}
+                          className="flex items-center gap-2"
                         >
-                          Remove
-                        </button>
+                          <input
+                            type="number"
+                            step="1"
+                            value={scoreDrafts[participant.id] ?? participant.score}
+                            onChange={(e) =>
+                              setScoreDrafts((prev) => ({
+                                ...prev,
+                                [participant.id]: e.target.value,
+                              }))
+                            }
+                            className="field-input !py-2 !px-3 !text-sm"
+                            aria-label={`Manual score for ${participant.name}`}
+                          />
+                          <button
+                            type="submit"
+                            className="btn btn-secondary !px-3 !py-2 !text-xs shrink-0"
+                            disabled={updatingScoreUserId === participant.id}
+                          >
+                            {updatingScoreUserId === participant.id ? 'Saving...' : 'Save'}
+                          </button>
+                        </form>
                       </article>
                     ))}
                   </div>
