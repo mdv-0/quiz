@@ -1,0 +1,21 @@
+import MediaDisplay from './MediaDisplay';
+
+const QuestionCard = ({ question, questionNumber }) => {
+  if (!question) return null;
+
+  return (
+    <section className="glass-card p-6 sm:p-8 w-full">
+      <div className="mb-5 sm:mb-6 flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-2xl sm:text-3xl font-bold">Question {questionNumber}</h2>
+        <div className="flex items-center gap-2">
+          <span className="badge badge-neutral">{question.timeLimitSec || 30}s</span>
+          <span className="badge badge-brand">{question.mediaType || 'text'}</span>
+        </div>
+      </div>
+
+      <MediaDisplay mediaType={question.mediaType} mediaUrl={question.mediaUrl} text={question.text} />
+    </section>
+  );
+};
+
+export default QuestionCard;

@@ -1,0 +1,207 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+:root {
+  --bg-top: #110b22;
+  --bg-bottom: #070510;
+  --ink: #f6f2ff;
+  --muted: #b3a8d6;
+  --card: rgba(29, 19, 55, 0.75);
+  --card-border: rgba(150, 117, 232, 0.28);
+  --surface: rgba(25, 16, 45, 0.82);
+  --surface-border: rgba(127, 96, 204, 0.33);
+  --brand: #8e5bff;
+  --brand-deep: #6132c9;
+  --accent: #cf67ff;
+  --danger: #d44f83;
+  --ok: #43b89f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: 'Outfit', 'Trebuchet MS', 'Segoe UI', sans-serif;
+  background:
+    radial-gradient(circle at 15% 12%, rgba(163, 103, 255, 0.33), transparent 40%),
+    radial-gradient(circle at 86% 18%, rgba(222, 89, 231, 0.24), transparent 42%),
+    radial-gradient(circle at 48% 90%, rgba(87, 64, 168, 0.2), transparent 54%),
+    linear-gradient(165deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: 'Space Grotesk', 'Franklin Gothic Medium', 'Trebuchet MS', sans-serif;
+  letter-spacing: 0.01em;
+}
+
+.page-shell {
+  min-height: 100vh;
+  width: 100%;
+  padding: clamp(1rem, 2vw, 1.5rem);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.control-shell {
+  min-height: 100vh;
+  width: 100%;
+  padding: clamp(1rem, 2vw, 1.75rem);
+}
+
+.glass-card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 24px;
+  box-shadow: 0 18px 48px rgba(7, 5, 16, 0.58);
+  backdrop-filter: blur(10px);
+}
+
+.surface-card {
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: 18px;
+  box-shadow: 0 10px 28px rgba(5, 3, 12, 0.45);
+}
+
+.field-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #d7c7ff;
+  margin-bottom: 0.4rem;
+}
+
+.field-input,
+.field-select,
+.field-textarea {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(149, 121, 229, 0.42);
+  background: rgba(16, 11, 30, 0.9);
+  color: #f4ecff;
+  font-size: 1rem;
+  padding: 0.78rem 0.95rem;
+  transition: all 180ms ease;
+}
+
+.field-input::placeholder,
+.field-textarea::placeholder {
+  color: #8f82b7;
+}
+
+.field-input:focus,
+.field-select:focus,
+.field-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(207, 103, 255, 0.2);
+}
+
+.btn {
+  border: 0;
+  border-radius: 12px;
+  font-size: 0.96rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 180ms ease;
+  line-height: 1;
+  padding: 0.88rem 1.05rem;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.btn-primary {
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand), var(--brand-deep));
+  box-shadow: 0 10px 24px rgba(97, 50, 201, 0.4);
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  color: #fff;
+  background: linear-gradient(135deg, #c34dff, #8e5bff);
+  box-shadow: 0 10px 20px rgba(145, 72, 244, 0.35);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.btn-danger {
+  color: #fff;
+  background: linear-gradient(135deg, #e26693, var(--danger));
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.36rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.badge-brand {
+  color: #fff;
+  background: linear-gradient(135deg, var(--brand), var(--brand-deep));
+}
+
+.badge-neutral {
+  color: #e5dcff;
+  background: rgba(113, 84, 181, 0.56);
+  border: 1px solid rgba(163, 130, 242, 0.45);
+}
+
+.text-muted {
+  color: var(--muted);
+}
+
+.timer-track {
+  height: 9px;
+  width: 100%;
+  border-radius: 999px;
+  background: rgba(94, 73, 146, 0.5);
+  overflow: hidden;
+}
+
+.timer-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #6de3c7, #8e5bff);
+  transition: width 200ms linear;
+}
+
+.timer-fill.danger {
+  background: linear-gradient(90deg, #ff8aa8, #d44f83);
+}
+
+@media (max-width: 768px) {
+  .page-shell,
+  .control-shell {
+    padding: 0.9rem;
+  }
+
+  .glass-card,
+  .surface-card {
+    border-radius: 16px;
+  }
+}
