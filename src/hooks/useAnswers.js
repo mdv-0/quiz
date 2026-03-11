@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, getDocs, doc, query, where, limit } from 'firebase/firestore';
+import { collection, onSnapshot, updateDoc, deleteDoc, getDocs, doc, query, where, limit, runTransaction } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
 export const useAnswers = (questionId = null) => {
@@ -50,18 +50,27 @@ export const useAnswers = (questionId = null) => {
         throw new Error('Answer already submitted for this question');
       }
 
-      const docRef = await addDoc(answersRef, {
-        userId,
-        questionId,
-        answerText,
-        round4FactStageAtSubmit: metadata.round4FactStageAtSubmit ?? null,
-        round5BetPlaced: Boolean(metadata.round5BetPlaced),
-        round5NoAnswer: Boolean(metadata.round5NoAnswer),
-        isCorrect: null,
-        awardedPoints: 0,
-        timestamp: new Date()
+      // Deterministic document id prevents duplicates under concurrent submits.
+      const answerRef = doc(db, 'answers', `${questionId}__${userId}`);
+      await runTransaction(db, async (transaction) => {
+        const answerSnap = await transaction.get(answerRef);
+        if (answerSnap.exists()) {
+          throw new Error('Answer already submitted for this question');
+        }
+
+        transaction.set(answerRef, {
+          userId,
+          questionId,
+          answerText,
+          round4FactStageAtSubmit: metadata.round4FactStageAtSubmit ?? null,
+          round5BetPlaced: Boolean(metadata.round5BetPlaced),
+          round5NoAnswer: Boolean(metadata.round5NoAnswer),
+          isCorrect: null,
+          awardedPoints: 0,
+          timestamp: new Date(),
+        });
       });
-      return docRef.id;
+      return answerRef.id;
     } catch (err) {
       setError(err.message);
       throw err;
