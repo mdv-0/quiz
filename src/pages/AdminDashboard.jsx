@@ -665,10 +665,10 @@ const AdminDashboard = () => {
                       <div>
                         <label className="field-label block">Media URL</label>
                         <input
-                          type="url"
+                          type="text"
                           value={newQuestion.mediaUrl}
                           onChange={(e) => setNewQuestion({ ...newQuestion, mediaUrl: e.target.value })}
-                          placeholder="https://example.com/media"
+                          placeholder="https://example.com/media или /quiz-media/gcore/38.jpeg"
                           className="field-input"
                         />
                       </div>
@@ -835,11 +835,11 @@ const AdminDashboard = () => {
                                   <div>
                                     <label className="field-label block">Media URL</label>
                                     <input
-                                      type="url"
+                                      type="text"
                                       value={editQuestion.mediaUrl}
                                       onChange={(e) => setEditQuestion({ ...editQuestion, mediaUrl: e.target.value })}
                                       className="field-input"
-                                      placeholder="https://example.com/media"
+                                      placeholder="https://example.com/media или /quiz-media/gcore/40.png"
                                     />
                                   </div>
                                   <div>

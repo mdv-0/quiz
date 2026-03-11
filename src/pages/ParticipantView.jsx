@@ -300,7 +300,7 @@ const ParticipantView = () => {
                   <div className="rounded-xl border border-[#7d5bc2] bg-[#24183f] p-4 flex items-center justify-between gap-3">
                     <div>
                       <p className="font-semibold">Ставка</p>
-                      <p className="text-xs text-muted">Верно: +2, неверно или нет ответа: -2</p>
+                      <p className="text-xs text-muted">Верно: +2, неверно: -2</p>
                     </div>
                     <button
                       type="button"
